@@ -14,98 +14,75 @@ matrix:
             - liblapack-dev
             - libmetis-dev
             - libnauty2-dev
-    - os: linux
-      dist: bionic
-      env: BUILD_STATIC=false DEBUG=false ASAN=false
-      addons:
-        apt:
-          packages:
-            - gfortran
-            - liblapack-dev
-            - libmetis-dev
-            - libnauty2-dev
-    - os: linux
-      dist: xenial
-      env: BUILD_STATIC=true DEBUG=false ASAN=false
-      addons:
-        apt:
-          packages:
-            - gfortran
-            - libgfortran-5-dev
-            - liblapack-dev
-            - libmetis-dev
-            - libnauty2-dev
     - os: osx
       osx_image: xcode11
-      env: OSX=10.14 CC=gcc CXX=g++ BUILD_STATIC=false DEBUG=false ASAN=false
-      compiler: clang
-    - os: osx
-      osx_image: xcode11
-      env: OSX=10.14  BUILD_STATIC=false DEBUG=false ASAN=false
+      env: OSX=10.14
       compiler: clang
     - os: osx
       osx_image: xcode10
-      env: OSX=10.13  BUILD_STATIC=false DEBUG=false ASAN=false
+      env: OSX=10.13
+      compiler: clang
+    - os: osx
+      osx_image: xcode9.2
+      env: OSX=10.12
       compiler: clang
 
-  allow_failures:
-    - os: windows
+    - language: minimal
+      dist: bionic
+      env: DISTRO=alpine
+    - language: minimal
+      dist: bionic
+      env: DISTRO=archlinux
+    - language: minimal
+      dist: bionic
+      env: DISTRO=centos
+    - language: minimal
+      dist: bionic
+      env: DISTRO=debian
+    - language: minimal
+      dist: bionic
+      env: DISTRO=fedora
+    - language: minimal
+      dist: bionic
+      env: DISTRO=opensuse
+    - language: minimal
+      dist: bionic
+      env: DISTRO=ubuntu
 
-before_install:
-- |-
-    ############## Installing Additional Packages #################
-    export PROJECT=$(basename $PWD)
-    cd ..                      
-    git clone https://github.com/coin-or/coinbrew
-    bash coinbrew/.ci/install_packages.sh
-    case $TRAVIS_OS_NAME in
-      windows)
-        BASH=bash
-        alias make=mingw32-make  # so that Autotools can find it
-        ;;
-      osx)
-        BASH=/usr/local/bin/bash
-        ;;
-      linux)
-        BASH=bash
-        ;;
-    esac
-    export BASH
+  allow_failures:
+    - os: osx
+
+install: true
 
 before_script:
-- |-
-    ############# Fetching Dependencies ##############
-    $BASH coinbrew/coinbrew fetch $PROJECT --no-prompt --skip-update
-
-before_cache:
-- |-
-    case $TRAVIS_OS_NAME in
-      windows)
-        $BASH pacman --sync --clean --noconfirm
-        ;;
-    esac
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then  export PLATFORM=osx$OSX-x86_64-clang`clang -dumpversion`; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; brew install bash gcc; brew link --overwrite gcc; gfortran --version; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]] && [[ -z "$DISTRO" ]]; then export PLATFORM=linux-x86_64-gcc`gcc -dumpversion`; fi
+  - if [[ -z "$DISTRO" ]]; then cd ..; fi
+  - if [[ -z "$DISTRO" ]]; then wget https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew; fi
+  - if [[ -z "$DISTRO" ]]; then export PROJECT_URL=https://github.com/$TRAVIS_REPO_SLUG; fi
+  - if [[ -z "$DISTRO" ]]; then export PROJECT=`echo $TRAVIS_REPO_SLUG | cut -d "/" -f 2`; fi
+  - if [[ -z "$DISTRO" ]]; then bash ./coinbrew fetch $PROJECT_URL:$TRAVIS_BRANCH --no-prompt --skip-update > /dev/null; fi
 
 script:
-- |-
-    ############### Building Project ####################
-    source coinbrew/.ci/setup_environment.sh
-    if [ "$BUILD_STATIC" = "true" ]; then 
-       ADD_ARGS=( --no-third-party --enable-static --disable-shared --without-lapack --disable-readline --disable-bzlib --disable-zlib --without-cholmod --without-amd --static CXXFLAGS="-static -O2 -DNDEBUG" )
-    fi
-    $BASH coinbrew/coinbrew build $PROJECT "${COMMON_ARGS[@]}" "${ADD_ARGS[@]}" "${DBG_ARGS[@]}"
+  - if [[ -z "$DISTRO" ]]; then bash ./coinbrew build $PROJECT --no-prompt --verbosity=4 --test; fi
+
+  - >
+    if [[ ! -z "$DISTRO" ]]; then (
+    cd .ci &&
+    make env_${DISTRO} &&
+    make devel_${DISTRO} &&
+    make test_${DISTRO} &&
+    make install_${DISTRO} &&
+    make test_install_${DISTRO} ||
+    travis_terminate 1 ); fi
+
 
 after_script:
-- |-
-    ############## Uploading Binaries ##################
-    case $TRAVIS_OS_NAME in
-      linux|osx)
-        source coinbrew/.ci/setup_environment.sh
-        $BASH coinbrew/.ci/upload_binaries.sh
-        ;;
-    esac
-    
-cache:
-    directories:
-    - $HOME/AppData/Local/Temp/chocolatey
-    - /C/tools/msys64
-
+  - if [ $TRAVIS_BRANCH = "master" ] &&  [[ -z "$DISTRO" ]]; then export VERSION=master; else export VERSION=`echo $TRAVIS_BRANCH | cut -d "/" -f 2`; fi
+  - if [[ -z "$DISTRO" ]]; then export TGZ_FILE=$PROJECT-$VERSION-$PLATFORM.tgz; fi
+  - if [[ -z "$DISTRO" ]]; then echo $TGZ_FILE; fi
+  - if [[ -z "$DISTRO" ]]; then cp $PROJECT/README.md $PROJECT/LICENSE $PROJECT/$PROJECT/AUTHORS dist; fi
+  - if [[ -z "$DISTRO" ]]; then cd dist; fi
+  - if [[ -z "$DISTRO" ]]; then tar -czvf $TGZ_FILE lib/* bin/* include/* share/* README.md LICENSE AUTHORS; fi
+  - if [[ -z "$DISTRO" ]]; then curl -T $TGZ_FILE -utkralphs:$BINTRAY_API -H "X-Bintray-Publish:1" -H "X-Bintray-Override:1" https://api.bintray.com/content/coin-or/download/$PROJECT/$VERSION/$TGZ_FILE; fi
