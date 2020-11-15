@@ -60,6 +60,30 @@ else()
   set(PTHREADS_FOUND FALSE)
 endif()
 
+# multi-threading CBC
+option(ENABLE_CBC_PARALLEL "Enables compilation of the SMP version of Cbc" ON)
+# find_package(Threads)
+set(PTHREADS_W32_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/pthreads-w32)
+if (NOT ENABLE_CBC_PARALLEL)
+  # Do nothing.
+elseif (CMAKE_USE_PTHREADS_INIT)
+  set(CBC_THREAD 1)
+  set(CBC_PTHREADS_LIB ${CMAKE_THREAD_LIBS_INIT})
+elseif (WIN32 AND EXISTS ${PTHREADS_W32_DIR})
+  set(sources )
+  foreach (src attr.c barrier.c cancel.c cleanup.c condvar.c create.c dll.c
+               autostatic.c errno.c exit.c fork.c global.c misc.c mutex.c
+               nonportable.c private.c rwlock.c sched.c semaphore.c signal.c
+               spin.c sync.c tsd.c)
+    set(sources ${sources} ${PTHREADS_W32_DIR}/${src})
+  endforeach ()
+  include_directories(${PTHREADS_W32_DIR})
+  add_definitions(-DPTW32_STATIC_LIB=1)
+  add_library(pthreads STATIC ${sources})
+  set(CBC_THREAD 1)
+  set(CBC_PTHREADS_LIB pthreads)
+endif ()
+
 find_package(CoinUtils REQUIRED CONFIG)
 find_package(Osi REQUIRED CONFIG)
 find_package(Clp REQUIRED CONFIG)
